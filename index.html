@@ -24,12 +24,44 @@
         z-index: 999;
         pointer-events: none;
       }
+      #start-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.75);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        color: white;
+        gap: 20px;
+      }
+      #start-overlay h2 {
+        font-size: 22px;
+        margin: 0;
+      }
+      #start-btn {
+        background: #0066cc;
+        color: white;
+        border: none;
+        border-radius: 30px;
+        padding: 14px 36px;
+        font-size: 18px;
+        font-weight: 700;
+        cursor: pointer;
+      }
     </style>
     <!-- AR.js + A-Frame -->
     <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
   </head>
   <body>
+    <!-- Overlay inicial: desbloquea el video con interacción del usuario -->
+    <div id="start-overlay">
+      <h2>Tsunami AR</h2>
+      <button id="start-btn">Iniciar experiencia</button>
+    </div>
+
     <div id="instructions">Apunta la cámara al marcador Hiro</div>
 
     <a-scene
@@ -54,14 +86,13 @@
 
       <!-- Marcador Hiro -->
       <a-marker preset="hiro">
-        <!-- Plano con video del tsunami, centrado sobre el marcador -->
-        <a-video
+        <a-plane
           src="#tsunami-video"
           width="1.8"
           height="1"
           rotation="-90 0 0"
           position="0 0.01 0"
-        ></a-video>
+        ></a-plane>
       </a-marker>
 
       <!-- Cámara AR -->
@@ -69,10 +100,21 @@
     </a-scene>
 
     <script>
-      // Reproducir video al detectar el marcador
       const marker = document.querySelector('a-marker');
       const video = document.getElementById('tsunami-video');
       const instructions = document.getElementById('instructions');
+      const overlay = document.getElementById('start-overlay');
+      const startBtn = document.getElementById('start-btn');
+
+      // El botón desbloquea el autoplay en iOS/Android
+      startBtn.addEventListener('click', () => {
+        // Reproducir y pausar inmediatamente para desbloquear el contexto de audio/video
+        video.play().then(() => {
+          video.pause();
+          video.currentTime = 0;
+        }).catch(() => {});
+        overlay.style.display = 'none';
+      });
 
       marker.addEventListener('markerFound', () => {
         video.play().catch(() => {});
@@ -80,6 +122,7 @@
       });
 
       marker.addEventListener('markerLost', () => {
+        video.pause();
         instructions.style.display = 'block';
       });
     </script>
