@@ -68,7 +68,7 @@
     <div id="instructions">Apunta la cámara al logo IOA</div>
 
     <a-scene
-      mindar-image="imageTargetSrc: targets.mind; autoStart: false;"
+      mindar-image="imageTargetSrc: targets.mind; autoStart: true;"
       color-space="sRGB"
       renderer="colorManagement: true; physicallyCorrectLights: true;"
       vr-mode-ui="enabled: false"
@@ -108,14 +108,10 @@
       const sceneEl = document.querySelector('a-scene');
 
       startBtn.addEventListener('click', () => {
-        // Desbloquear autoplay con gesto del usuario
+        // Desbloquear autoplay con gesto del usuario (requerido por iOS)
         video.play().then(() => { video.pause(); video.currentTime = 0; }).catch(() => {});
         overlay.style.display = 'none';
         instructions.style.display = 'block';
-
-        // Iniciar MindAR
-        const arSystem = sceneEl.systems['mindar-image-system'];
-        arSystem.start();
       });
 
       // Controlar video con detección del marcador
