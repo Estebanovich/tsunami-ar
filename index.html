@@ -5,11 +5,37 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
     <title>Tsunami AR — Feria de Ciencias</title>
     <style>
-      body {
-        margin: 0;
-        overflow: hidden;
-        font-family: sans-serif;
+      body { margin: 0; overflow: hidden; font-family: sans-serif; }
+
+      #start-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.82);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        color: white;
+        gap: 20px;
+        padding: 30px;
+        text-align: center;
       }
+      #start-overlay img { width: 110px; opacity: 0.9; }
+      #start-overlay h2 { font-size: 22px; margin: 0; }
+      #start-overlay p { font-size: 14px; margin: 0; color: #ccc; max-width: 300px; }
+      #start-btn {
+        background: #0066cc;
+        color: white;
+        border: none;
+        border-radius: 30px;
+        padding: 14px 36px;
+        font-size: 18px;
+        font-weight: 700;
+        cursor: pointer;
+        margin-top: 8px;
+      }
+
       #instructions {
         position: fixed;
         bottom: 20px;
@@ -23,59 +49,35 @@
         text-align: center;
         z-index: 999;
         pointer-events: none;
-      }
-      #start-overlay {
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.75);
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        z-index: 1000;
-        color: white;
-        gap: 20px;
-      }
-      #start-overlay h2 {
-        font-size: 22px;
-        margin: 0;
-      }
-      #start-btn {
-        background: #0066cc;
-        color: white;
-        border: none;
-        border-radius: 30px;
-        padding: 14px 36px;
-        font-size: 18px;
-        font-weight: 700;
-        cursor: pointer;
+        display: none;
       }
     </style>
-    <!-- AR.js + A-Frame -->
+
     <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
   </head>
   <body>
-    <!-- Overlay inicial: desbloquea el video con interacción del usuario -->
+
     <div id="start-overlay">
+      <img src="ioa_marker.png" alt="Logo IOA" />
       <h2>Tsunami AR</h2>
+      <p>Apunta la cámara al logo del grupo para ver el tsunami en realidad aumentada.</p>
       <button id="start-btn">Iniciar experiencia</button>
     </div>
 
-    <div id="instructions">Apunta la cámara al marcador Hiro</div>
+    <div id="instructions">Apunta la cámara al logo IOA</div>
 
     <a-scene
-      embedded
-      arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3;"
+      mindar-image="imageTargetSrc: targets.mind; autoStart: false;"
+      color-space="sRGB"
+      renderer="colorManagement: true; physicallyCorrectLights: true;"
       vr-mode-ui="enabled: false"
-      renderer="logarithmicDepthBuffer: true; antialias: true;"
+      device-orientation-permission-ui="enabled: false"
     >
-      <!-- Assets -->
       <a-assets>
         <video
           id="tsunami-video"
           src="tsunami.mp4"
-          autoplay
           loop
           playsinline
           webkit-playsinline
@@ -84,44 +86,45 @@
         ></video>
       </a-assets>
 
-      <!-- Marcador Hiro -->
-      <a-marker preset="hiro">
+      <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+      <!-- Target 0 = primer imagen en targets.mind (ioa_marker.png) -->
+      <a-entity mindar-image-target="targetIndex: 0">
         <a-plane
           src="#tsunami-video"
-          width="1.8"
-          height="1"
-          rotation="-90 0 0"
-          position="0 0.01 0"
+          width="1"
+          height="0.552"
+          position="0 0 0"
+          rotation="0 0 0"
         ></a-plane>
-      </a-marker>
-
-      <!-- Cámara AR -->
-      <a-entity camera></a-entity>
+      </a-entity>
     </a-scene>
 
     <script>
-      const marker = document.querySelector('a-marker');
-      const video = document.getElementById('tsunami-video');
-      const instructions = document.getElementById('instructions');
       const overlay = document.getElementById('start-overlay');
       const startBtn = document.getElementById('start-btn');
+      const instructions = document.getElementById('instructions');
+      const video = document.getElementById('tsunami-video');
+      const sceneEl = document.querySelector('a-scene');
 
-      // El botón desbloquea el autoplay en iOS/Android
       startBtn.addEventListener('click', () => {
-        // Reproducir y pausar inmediatamente para desbloquear el contexto de audio/video
-        video.play().then(() => {
-          video.pause();
-          video.currentTime = 0;
-        }).catch(() => {});
+        // Desbloquear autoplay con gesto del usuario
+        video.play().then(() => { video.pause(); video.currentTime = 0; }).catch(() => {});
         overlay.style.display = 'none';
+        instructions.style.display = 'block';
+
+        // Iniciar MindAR
+        const arSystem = sceneEl.systems['mindar-image-system'];
+        arSystem.start();
       });
 
-      marker.addEventListener('markerFound', () => {
+      // Controlar video con detección del marcador
+      sceneEl.addEventListener('targetFound', () => {
         video.play().catch(() => {});
         instructions.style.display = 'none';
       });
 
-      marker.addEventListener('markerLost', () => {
+      sceneEl.addEventListener('targetLost', () => {
         video.pause();
         instructions.style.display = 'block';
       });
