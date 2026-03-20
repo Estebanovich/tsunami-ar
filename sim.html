@@ -63,6 +63,7 @@
     #stat-height .stat-value { color: #4fc3f7; }
     #stat-coast  .stat-value { color: #ff7043; }
     #stat-speed  .stat-value { color: #81c784; }
+  #stat-cfl    .stat-value { color: #ffd54f; }
 
     /* Controls */
     #controls {
@@ -178,6 +179,10 @@
     <div class="stat-label">Vel. ola</div>
     <div class="stat-value" id="val-speed">— km/h</div>
   </div>
+  <div class="stat" id="stat-cfl">
+    <div class="stat-label">CFL</div>
+    <div class="stat-value" id="val-cfl">—</div>
+  </div>
 </div>
 
 <div id="controls">
@@ -221,13 +226,15 @@
 
 <script>
 // ── Constants ────────────────────────────────────────────────────────────────
-const N_CELLS   = 400;
-const DX        = 150;        // m → 60 km domain
-const g         = 9.81;
-const H_MIN     = 0.3;
-const SPONGE_N  = 50;
-const ASSELIN   = 0.02;
-const X_SRC_FRAC = 0.10;     // initial wave centre at 10% of domain
+const N_CELLS    = 400;
+const DX         = 150;       // m → 60 km domain
+const g          = 9.81;
+const H_MIN      = 0.5;       // numerical floor — evita sqrt(0) y CFL infinito
+const SPONGE_N   = 60;        // celdas de esponja izquierda
+const SPONGE_R   = 40;        // celdas de esponja derecha (absorbe reflexión)
+const ASSELIN    = 0.05;      // filtro Asselin — suprime modo computacional leapfrog
+const CFL_MAX    = 0.90;      // margen de seguridad CFL
+const X_SRC_FRAC = 0.10;     // fuente al 10% del dominio
 
 // Slope presets: shelfFrac = fraction of domain that is flat shelf
 // (1 - shelfFrac) is the beach slope zone
@@ -268,7 +275,15 @@ function makeHFace(H) {
 function initSim() {
   const H  = makeBathy(P.hDeep, P.shelfFrac);
   const Hf = makeHFace(H);
-  const DT = 0.85 * DX / Math.sqrt(g * P.hDeep);
+
+  // DT basado en c_max REAL del dominio (incluye celdas someras)
+  const c_max = Math.sqrt(g * Math.max(...H));
+  const DT    = CFL_MAX * DX / c_max;
+  const CFL   = c_max * DT / DX;  // debe ser ≤ 1
+
+  // Tiempo de cruce del dominio → auto-reset a las 2.5 travesías
+  const t_cross   = (N_CELLS * DX) / c_max;
+  const t_autoreset = 2.5 * t_cross;
 
   const x0  = X_SRC_FRAC * (N_CELLS - 1) * DX;
   const sig = 2200; // m
@@ -286,15 +301,24 @@ function initSim() {
               * Math.sqrt(g / Math.max(Hf[i], H_MIN));
   }
 
+  // Esponja izquierda (absorbe reflexiones del océano abierto)
   const sh = new Float64Array(N_CELLS).fill(1);
   const su = new Float64Array(N_CELLS + 1).fill(1);
   for (let i = 0; i < SPONGE_N; i++) {
-    sh[i] = i / SPONGE_N;
-    su[i] = i / SPONGE_N;
+    const v = i / SPONGE_N;
+    sh[i] = v; su[i] = v;
+  }
+  // Esponja derecha (absorbe la ola reflejada en la costa)
+  for (let i = 0; i < SPONGE_R; i++) {
+    const v = i / SPONGE_R;
+    const idx  = N_CELLS - 1 - i;
+    const idxu = N_CELLS - i;
+    sh[idx]  = Math.min(sh[idx],  v);
+    su[idxu] = Math.min(su[idxu], v);
   }
 
   sim = {
-    H, Hf, DT, sh, su,
+    H, Hf, DT, CFL, t_autoreset, sh, su,
     h0: h_ic.slice(), h1: h_ic.slice(), h2: new Float64Array(N_CELLS),
     u0: u_ic.slice(), u1: u_ic.slice(), u2: new Float64Array(N_CELLS + 1),
     t: 0, stepN: 0,
@@ -451,12 +475,23 @@ function updateStats() {
   document.getElementById('val-coast').textContent  = `${Math.abs(h1[N_CELLS - 1]).toFixed(2)} m`;
 
   const waveSpeed = Math.sqrt(g * P.hDeep) * 3.6;
-  document.getElementById('val-speed').textContent  = `${waveSpeed.toFixed(0)} km/h`;
+  document.getElementById('val-speed').textContent = `${waveSpeed.toFixed(0)} km/h`;
+  document.getElementById('val-cfl').textContent   = sim.CFL.toFixed(3);
 }
 
 // ── Animation loop ────────────────────────────────────────────────────────────
 function loop() {
   stepSim(sim, stepsPerFrame);
+
+  // Chequeo de estabilidad: NaN o divergencia → auto-reset
+  const hMax = Math.max(...sim.h1);
+  const isUnstable = !isFinite(hMax) || hMax > P.amp * 50;
+  const isExpired  = sim.t > sim.t_autoreset;
+
+  if (isUnstable || isExpired) {
+    initSim();
+  }
+
   render();
   updateStats();
   rafId = requestAnimationFrame(loop);
