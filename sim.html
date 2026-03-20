@@ -230,8 +230,7 @@ const N_CELLS    = 400;
 const DX         = 150;       // m → 60 km domain
 const g          = 9.81;
 const H_MIN      = 0.5;       // numerical floor — evita sqrt(0) y CFL infinito
-const SPONGE_N   = 60;        // celdas de esponja izquierda
-const SPONGE_R   = 40;        // celdas de esponja derecha (absorbe reflexión)
+const SPONGE_N   = 60;        // celdas de esponja izquierda (absorbe reflexión del océano)
 const ASSELIN    = 0.05;      // filtro Asselin — suprime modo computacional leapfrog
 const CFL_MAX    = 0.90;      // margen de seguridad CFL
 const X_SRC_FRAC = 0.10;     // fuente al 10% del dominio
@@ -276,14 +275,12 @@ function initSim() {
   const H  = makeBathy(P.hDeep, P.shelfFrac);
   const Hf = makeHFace(H);
 
-  // DT basado en c_max REAL del dominio (incluye celdas someras)
-  const c_max = Math.sqrt(g * Math.max(...H));
+  // DT basado en c_max REAL del dominio — loop explícito (evita stack overflow con spread)
+  let hMax = H_MIN;
+  for (let i = 0; i < N_CELLS; i++) if (H[i] > hMax) hMax = H[i];
+  const c_max = Math.sqrt(g * hMax);
   const DT    = CFL_MAX * DX / c_max;
   const CFL   = c_max * DT / DX;  // debe ser ≤ 1
-
-  // Tiempo de cruce del dominio → auto-reset a las 2.5 travesías
-  const t_cross   = (N_CELLS * DX) / c_max;
-  const t_autoreset = 2.5 * t_cross;
 
   const x0  = X_SRC_FRAC * (N_CELLS - 1) * DX;
   const sig = 2200; // m
@@ -301,24 +298,16 @@ function initSim() {
               * Math.sqrt(g / Math.max(Hf[i], H_MIN));
   }
 
-  // Esponja izquierda (absorbe reflexiones del océano abierto)
+  // Esponja izquierda — rampa lineal de 0 (borde) a 1 (interior)
   const sh = new Float64Array(N_CELLS).fill(1);
   const su = new Float64Array(N_CELLS + 1).fill(1);
   for (let i = 0; i < SPONGE_N; i++) {
     const v = i / SPONGE_N;
     sh[i] = v; su[i] = v;
   }
-  // Esponja derecha (absorbe la ola reflejada en la costa)
-  for (let i = 0; i < SPONGE_R; i++) {
-    const v = i / SPONGE_R;
-    const idx  = N_CELLS - 1 - i;
-    const idxu = N_CELLS - i;
-    sh[idx]  = Math.min(sh[idx],  v);
-    su[idxu] = Math.min(su[idxu], v);
-  }
 
   sim = {
-    H, Hf, DT, CFL, t_autoreset, sh, su,
+    H, Hf, DT, CFL, sh, su,
     h0: h_ic.slice(), h1: h_ic.slice(), h2: new Float64Array(N_CELLS),
     u0: u_ic.slice(), u1: u_ic.slice(), u2: new Float64Array(N_CELLS + 1),
     t: 0, stepN: 0,
@@ -483,12 +472,13 @@ function updateStats() {
 function loop() {
   stepSim(sim, stepsPerFrame);
 
-  // Chequeo de estabilidad: NaN o divergencia → auto-reset
-  const hMax = Math.max(...sim.h1);
-  const isUnstable = !isFinite(hMax) || hMax > P.amp * 50;
-  const isExpired  = sim.t > sim.t_autoreset;
-
-  if (isUnstable || isExpired) {
+  // Chequeo de estabilidad: solo NaN o divergencia extrema → auto-reset
+  let hAbsMax = 0;
+  for (let i = 0; i < N_CELLS; i++) {
+    const v = Math.abs(sim.h1[i]);
+    if (v > hAbsMax) hAbsMax = v;
+  }
+  if (!isFinite(hAbsMax) || hAbsMax > P.amp * 100) {
     initSim();
   }
 
